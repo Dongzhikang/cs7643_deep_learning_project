@@ -22,5 +22,25 @@ Resources/Related Work:
 Datasets:
 CIFAR-100 https://www.cs.toronto.edu/~kriz/cifar.html
 
+articles (including contrastive learning in general, contrastive losses, etc.)
+https://ai.googleblog.com/2021/06/extending-contrastive-learning-to.html
+https://wandb.ai/authors/scl/reports/Supervised-Contrastive-Larning--VmlldzoxMjA2MzQ
+https://lilianweng.github.io/posts/2021-05-31-contrastive/
+https://jamesmccaffrey.wordpress.com/?s=contrastive+learning
+https://medium.com/@maksym.bekuzarov/losses-explained-contrastive-loss-f8f57fe32246
+https://arxiv.org/abs/2010.05113 (a review paper on contrastive learning)
+https://towardsdatascience.com/contrasting-contrastive-loss-functions-3c13ca5f055e
+https://gowrishankar.info/blog/introduction-to-contrastive-loss-similarity-metric-as-an-objective-function/
+https://gombru.github.io/2019/04/03/ranking_loss/
+
+implementation
+https://github.com/HobbitLong/SupContrast
+https://www.kaggle.com/code/debarshichanda/pytorch-supervised-contrastive-learning
+
+youtube
+https://www.youtube.com/watch?v=MpdbFLXOOIw
+https://www.youtube.com/watch?v=DQpcy4o2qFU
+https://www.youtube.com/watch?v=o00oZmadBxA
+
 
 2. Yunkai: 有一个想法 就是现在各种visualization method大部分看不到颜色 但是颜色不一定没有被用在feature recognition里面 所以可以讨论一下颜色对classification的影响 可以选几个比较出名的architecture然后把data都变成grayscale -> train models -> 然后用它去classify彩色的图片（或者反过来）然后hopefully可以在training data里面加几个颜色滤镜 最后提升识别的accuracy and robustness 这个好处是没有新的要学的知识 可能也不太需要太多调参 所有downside surprise比较小
