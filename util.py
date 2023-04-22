@@ -1,5 +1,5 @@
 # Adapted from https://github.com/HobbitLong/SupContrast/blob/master/util.py
-# line 51 changed view to reshape
+# line 52 changed view to reshape
 
 from __future__ import print_function
 import math
