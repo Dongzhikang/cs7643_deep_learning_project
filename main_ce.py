@@ -2,6 +2,8 @@
 # Removed syncBN related parts
 # Changed val_loader num_workers form 8 to 2
 # Removed tensorboard_logger parts for compatibility with Colab, instead added python lists to record accuracies and losses
+# Added options for MINIST
+# Added options for visualizing embeddings via t-SNE and PCA
 
 from __future__ import print_function
 import os
@@ -13,13 +15,18 @@ import math
 import torch
 import torch.backends.cudnn as cudnn
 from torchvision import transforms, datasets
+import torch.nn.functional as F
 
 from util import AverageMeter
 from util import adjust_learning_rate, warmup_learning_rate, accuracy
 from util import set_optimizer, save_model
 from resnet import SupCEResNet
+
 import matplotlib.pyplot as plt
+from matplotlib import colormaps
 import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 
 def parse_option():
@@ -51,7 +58,7 @@ def parse_option():
     # model dataset
     parser.add_argument('--model', type=str, default='resnet50')
     parser.add_argument('--dataset', type=str, default='cifar10',
-                        choices=['cifar10', 'cifar100'], help='dataset')
+                        choices=['cifar10', 'cifar100', 'mnist'], help='dataset')
 
     # other setting
     parser.add_argument('--cosine', action='store_true',
@@ -60,6 +67,8 @@ def parse_option():
                         help='warm-up for large batch training')
     parser.add_argument('--trial', type=str, default='0',
                         help='id for recording multiple runs')
+    parser.add_argument('--visualize', action='store_false',
+                        help='produce figures for the projections')
 
     opt = parser.parse_args()
 
@@ -106,9 +115,10 @@ def parse_option():
         opt.n_cls = 10
     elif opt.dataset == 'cifar100':
         opt.n_cls = 100
+    elif opt.dataset == 'mnist':
+        opt.n_cls = 10
     else:
         raise ValueError('dataset not supported: {}'.format(opt.dataset))
-
     return opt
 
 
@@ -120,6 +130,9 @@ def set_loader(opt):
     elif opt.dataset == 'cifar100':
         mean = (0.5071, 0.4867, 0.4408)
         std = (0.2675, 0.2565, 0.2761)
+    elif opt.dataset == 'mnist':
+        mean = (0.1307,)
+        std = (0.3081,)
     else:
         raise ValueError('dataset not supported: {}'.format(opt.dataset))
     normalize = transforms.Normalize(mean=mean, std=std)
@@ -150,6 +163,13 @@ def set_loader(opt):
         val_dataset = datasets.CIFAR100(root=opt.data_folder,
                                         train=False,
                                         transform=val_transform)
+    elif opt.dataset == 'mnist':
+        train_dataset = datasets.MNIST(root=opt.data_folder,
+                                       transform=train_transform,
+                                       download=True)
+        val_dataset = datasets.MNIST(root=opt.data_folder,
+                                     train=False,
+                                     transform=val_transform)
     else:
         raise ValueError(opt.dataset)
 
@@ -346,6 +366,51 @@ def main():
     plt.title("Loss curve")
     pic_file = os.path.join(opt.pic_folder, 'loss.png')
     plt.savefig(pic_file)
+
+    # visualize the embedding
+    if opt.visualize:
+        # shape only works for resnet50 and resnet101!
+        embeddings = np.zeros(shape=(0, 2048))
+        labels = np.zeros(shape=(0))
+        model.eval()
+        with torch.no_grad():
+            for image, label in iter(val_loader):
+                image = image.float().cuda()
+                emb = F.normalize(model.encoder(image), dim=1)
+                labels = np.concatenate((labels, label.numpy().ravel()))
+                embeddings = np.concatenate(
+                    [embeddings, emb.detach().cpu().numpy()], axis=0)
+
+        # create two dimensional t-SNE and PCA projections of the embeddings
+        # adapted from https://towardsdatascience.com/visualizing-feature-vectors-embeddings-using-pca-and-t-sne-ef157cea3a42
+        tsne = TSNE(2)
+        tsne_proj = tsne.fit_transform(embeddings)
+        cmap = colormaps['tab10']
+        fig, ax = plt.subplots(figsize=(8, 8))
+        for lab in range(opt.n_cls):
+            indices = labels == lab
+            ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], c=np.array(
+                cmap(lab)).reshape(1, 4), label=lab, alpha=0.7)
+        ax.legend()
+        plt.xlabel('Dimension 1')
+        plt.ylabel('Dimension 2')
+        plt.title("t-SNE projected embeddings")
+        pic_file = os.path.join(opt.pic_folder, 'tsne.png')
+        plt.savefig(pic_file)
+
+        pca = PCA(n_components=2)
+        pca_proj = pca.fit_transform(embeddings)
+        fig, ax = plt.subplots(figsize=(8, 8))
+        for lab in range(opt.n_cls):
+            indices = labels == lab
+            ax.scatter(pca_proj[indices, 0], pca_proj[indices, 1], c=np.array(
+                cmap(lab)).reshape(1, 4), label=lab, alpha=0.7)
+        ax.legend()
+        plt.xlabel('Dimension 1')
+        plt.ylabel('Dimension 2')
+        plt.title("PCA projected embeddings")
+        pic_file = os.path.join(opt.pic_folder, 'pca.png')
+        plt.savefig(pic_file)
 
 
 if __name__ == '__main__':
