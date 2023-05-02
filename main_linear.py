@@ -1,5 +1,8 @@
 # Adapted from https://github.com/HobbitLong/SupContrast/blob/master/main_linear.py
 # Removed syncBN related parts
+# Added options for MNIST
+# Added accuracy and loss curves
+# Added options for visualizing embeddings via t-SNE and PCA
 
 
 from __future__ import print_function
@@ -8,15 +11,24 @@ import sys
 import argparse
 import time
 import math
+import os
 
 import torch
 import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
 
 from main_ce import set_loader
 from util import AverageMeter
 from util import adjust_learning_rate, warmup_learning_rate, accuracy
 from util import set_optimizer
 from resnet import SupConResNet, LinearClassifier
+
+
+import matplotlib.pyplot as plt
+from matplotlib import colormaps
+import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 
 def parse_option():
@@ -48,7 +60,7 @@ def parse_option():
     # model dataset
     parser.add_argument('--model', type=str, default='resnet50')
     parser.add_argument('--dataset', type=str, default='cifar10',
-                        choices=['cifar10', 'cifar100'], help='dataset')
+                        choices=['cifar10', 'cifar100', 'mnist'], help='dataset')
 
     # other setting
     parser.add_argument('--cosine', action='store_true',
@@ -58,11 +70,14 @@ def parse_option():
 
     parser.add_argument('--ckpt', type=str, default='',
                         help='path to pre-trained model')
+    parser.add_argument('--visualize', action='store_false',
+                        help='produce figures for the projections')
 
     opt = parser.parse_args()
 
     # set the path according to the environment
     opt.data_folder = './datasets/'
+    opt.pic_path = './save/SupCon/{}_pic'.format(opt.dataset)
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
@@ -88,10 +103,16 @@ def parse_option():
         else:
             opt.warmup_to = opt.learning_rate
 
+    opt.pic_folder = os.path.join(opt.pic_path, opt.model_name)
+    if not os.path.isdir(opt.pic_folder):
+        os.makedirs(opt.pic_folder)
+
     if opt.dataset == 'cifar10':
         opt.n_cls = 10
     elif opt.dataset == 'cifar100':
         opt.n_cls = 100
+    elif opt.dataset == 'mnist':
+        opt.n_cls = 10
     else:
         raise ValueError('dataset not supported: {}'.format(opt.dataset))
 
@@ -236,6 +257,10 @@ def main():
     optimizer = set_optimizer(opt, classifier)
 
     # training routine
+    avg_train_loss_history = []
+    avg_train_acc_history = []
+    avg_val_loss_history = []
+    avg_val_acc_history = []
     for epoch in range(1, opt.epochs + 1):
         adjust_learning_rate(opt, optimizer, epoch)
 
@@ -247,12 +272,87 @@ def main():
         print('Train epoch {}, total time {:.2f}, accuracy:{:.2f}'.format(
             epoch, time2 - time1, acc))
 
+        avg_train_loss_history.append(loss)
+        avg_train_acc_history.append(acc)
+
         # eval for one epoch
         loss, val_acc = validate(val_loader, model, classifier, criterion, opt)
+        avg_val_acc_history.append(val_acc)
+        avg_val_loss_history.append(loss)
         if val_acc > best_acc:
             best_acc = val_acc
 
     print('best accuracy: {:.2f}'.format(best_acc))
+
+    # save learning curves
+    if torch.cuda.is_available():
+        avg_train_acc_history = [x.cpu() for x in avg_train_acc_history]
+        avg_val_acc_history = [x.cpu() for x in avg_val_acc_history]
+
+    fig = plt.figure()
+    plt.plot(np.arange(1, opt.epochs+1), avg_train_acc_history, label='train')
+    plt.plot(np.arange(1, opt.epochs+1), avg_val_acc_history, label='val')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title("Accuracy curve")
+    pic_file = os.path.join(opt.pic_folder, 'acc.png')
+    plt.savefig(pic_file)
+
+    fig = plt.figure()
+    plt.plot(np.arange(1, opt.epochs+1), avg_train_loss_history, label='train')
+    plt.plot(np.arange(1, opt.epochs+1), avg_val_loss_history, label='val')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title("Loss curve")
+    pic_file = os.path.join(opt.pic_folder, 'loss.png')
+    plt.savefig(pic_file)
+
+    # visualize the embedding
+    if opt.visualize:
+        # shape only works for resnet50 and resnet101!
+        embeddings = np.zeros(shape=(0, 2048))
+        labels = np.zeros(shape=(0))
+        model.eval()
+        with torch.no_grad():
+            for image, label in iter(val_loader):
+                image = image.float().cuda()
+                emb = F.normalize(model.encoder(image), dim=1)
+                labels = np.concatenate((labels, label.numpy().ravel()))
+                embeddings = np.concatenate(
+                    [embeddings, emb.detach().cpu().numpy()], axis=0)
+
+        # create two dimensional t-SNE and PCA projections of the embeddings
+        # adapted from https://towardsdatascience.com/visualizing-feature-vectors-embeddings-using-pca-and-t-sne-ef157cea3a42
+        tsne = TSNE(2)
+        tsne_proj = tsne.fit_transform(embeddings)
+        cmap = colormaps['tab10']
+        fig, ax = plt.subplots(figsize=(8, 8))
+        for lab in range(opt.n_cls):
+            indices = labels == lab
+            ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], c=np.array(
+                cmap(lab)).reshape(1, 4), label=lab, alpha=0.7)
+        ax.legend()
+        plt.xlabel('Dimension 1')
+        plt.ylabel('Dimension 2')
+        plt.title("t-SNE projected embeddings")
+        pic_file = os.path.join(opt.pic_folder, 'tsne.png')
+        plt.savefig(pic_file)
+
+        pca = PCA(n_components=2)
+        pca_proj = pca.fit_transform(embeddings)
+        fig, ax = plt.subplots(figsize=(8, 8))
+        for lab in range(opt.n_cls):
+            indices = labels == lab
+            ax.scatter(pca_proj[indices, 0], pca_proj[indices, 1], c=np.array(
+                cmap(lab)).reshape(1, 4), label=lab, alpha=0.7)
+        ax.legend()
+        plt.xlabel('Dimension 1')
+        plt.ylabel('Dimension 2')
+        plt.title("PCA projected embeddings")
+        pic_file = os.path.join(opt.pic_folder, 'pca.png')
+        plt.savefig(pic_file)
 
 
 if __name__ == '__main__':
