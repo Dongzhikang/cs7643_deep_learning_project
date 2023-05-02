@@ -173,6 +173,8 @@ class SupConResNet(nn.Module):
 
     def forward(self, x):
         feat = self.encoder(x)
+        # feat = F.normalize(feat,dim=1) # normalizing encoder output
+        # feat = self.head(feat) # projector output without normalization
         feat = F.normalize(self.head(feat), dim=1)
         return feat
 
