@@ -1,8 +1,10 @@
-# From https://github.com/HobbitLong/SupContrast/blob/331aab5921c1def3395918c05b214320bef54815/losses.py
+# Adapted from https://github.com/HobbitLong/SupContrast/blob/331aab5921c1def3395918c05b214320bef54815/losses.py
+# Added cosine similarity scoring function instead of dot product
 
 from __future__ import print_function
 import torch
 import torch.nn as nn
+from torchmetrics.functional import pairwise_cosine_similarity
 
 
 class SupConLoss(nn.Module):
@@ -66,6 +68,7 @@ class SupConLoss(nn.Module):
         # compute logits
         anchor_dot_contrast = torch.div(
             torch.matmul(anchor_feature, contrast_feature.T),
+            # pairwise_cosine_similarity(anchor_feature,contrast_feature),
             self.temperature)
         # for numerical stability
         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
